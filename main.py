@@ -16,8 +16,10 @@ OUTPUT_DIR = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
 LEVELS = [0.05, 0.25, 0.5, 0.75, 0.95]
 Z = [-1.645, -0.674, 0.0, 0.674, 1.645]
 MIN_SD = 0.05  # floor on the log spread per sqrt(hour)
+SLOPE_SHRINK = 0.5  # momentum slope, halved (LOO full slope: better on midnight-local launches, worse on all)
 # Tried and dropped (leave-one-out loss, lower is better): plain 0.713; widen x1.2 0.717; IQR-normal tails 0.761;
-# kernel-weighting analogs by pre-launch shape 0.750.
+# kernel-weighting analogs by pre-launch shape 0.750. Kept: per-hour regression on momentum log(h1 / 6h before),
+# slope x0.5: midnight-local launches 0.327 -> 0.307, all launches 0.731 -> 0.726. 1h/12h/24h windows did not help.
 
 
 def ts(s):
@@ -37,7 +39,7 @@ def weight(c):
 
 
 def curves(comparables):
-    """[(weight, [log(h/h1) for h in 2..24])] for every launch with a full release day."""
+    """[(weight, [log(h/h1) for h in 2..24], momentum)] for every launch with a full release day."""
     out = []
     for c in comparables:
         if str(c.get("unlock") or "").lower().startswith("not a launch"):
@@ -47,8 +49,21 @@ def curves(comparables):
         day = [v.get(d0 + timedelta(hours=k)) for k in range(24)]
         if any(x is None or x <= 0 for x in day):
             continue
-        out.append((weight(c), [math.log(day[k] / day[0]) for k in range(1, 24)]))
+        out.append((weight(c), [math.log(day[k] / day[0]) for k in range(1, 24)], momentum(day[0], v.get(d0 - timedelta(hours=6)))))
     return out
+
+
+def momentum(p1, p_6):
+    """log(hour 1 / the hour 6 hours before it): how much of the launch's early surge has already arrived."""
+    return math.log(max(p1, 1) / p_6) if p_6 and p_6 > 0 else None
+
+
+def target_momentum(case, p1):
+    try:  # odd history must never crash the case: fall back to the plain analog quantiles
+        d0 = ts(case["day_start"]) - timedelta(hours=6)
+        return momentum(p1, next((r["viewers"] for r in case.get("history_hourly") or [] if ts(r["from"]) == d0), None))
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def wquantile(pairs, tau):
@@ -67,13 +82,24 @@ def wquantile(pairs, tau):
     return pts[-1][1]
 
 
-def forecast(p1, cs):
+def forecast(p1, cs, f=None):
     p1 = max(p1, 1.0)
+    fit = [c for c in cs if len(c) > 2 and c[2] is not None] if f is not None else []
     rows = []
     for i in range(23):
         hour = i + 2
-        if cs:
-            pairs = [(l[i], w) for w, l in cs]
+        if len(fit) >= 5:  # residual quantiles around a weighted momentum regression
+            W = sum(c[0] for c in fit)
+            mx = sum(c[0] * c[2] for c in fit) / W
+            my = sum(c[0] * c[1][i] for c in fit) / W
+            sxx = sum(c[0] * (c[2] - mx) ** 2 for c in fit)
+            b = SLOPE_SHRINK * sum(c[0] * (c[2] - mx) * (c[1][i] - my) for c in fit) / sxx if sxx > 0 else 0.0
+            pairs = [(c[1][i] - b * (c[2] - mx), c[0]) for c in fit]
+            shift = b * (f - mx)
+            med = wquantile(pairs, 0.5) + shift
+            qs = [wquantile(pairs, t) + shift for t in LEVELS]
+        elif cs:
+            pairs = [(c[1][i], c[0]) for c in cs]
             med = wquantile(pairs, 0.5)
             qs = [wquantile(pairs, t) for t in LEVELS]
         else:  # no analogs: the house baseline's random walk
@@ -93,7 +119,7 @@ def main():
     for f in sorted(INPUT_DIR.glob("*.in")):
         case = json.loads(f.read_text(encoding="utf-8"))
         p1 = float(case["known"][0]["viewers"] or 1)
-        out = forecast(p1, curves(case.get("comparables") or []))
+        out = forecast(p1, curves(case.get("comparables") or []), target_momentum(case, p1))
         (OUTPUT_DIR / (f.stem + ".out")).write_text(json.dumps(out), encoding="utf-8")
 
 

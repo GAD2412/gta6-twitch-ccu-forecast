@@ -15,9 +15,9 @@ def loss(fc, day):
 
 cs = curves(json.load(open(sys.argv[1]))["comparables"])
 mine = base = 0
-for i, (_, l) in enumerate(cs):
+for i, (_, l, f) in enumerate(cs):
     day = [100.0] + [100.0 * math.exp(x) for x in l]
-    mine += loss(forecast(100.0, cs[:i] + cs[i + 1:]), day)
+    mine += loss(forecast(100.0, cs[:i] + cs[i + 1:], f), day)
     base += loss(forecast(100.0, []), day)
 print(f"launches={len(cs)} model={mine / len(cs):.4f} baseline={base / len(cs):.4f}")
 assert mine < base, "model must beat the house baseline"

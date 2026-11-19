@@ -8,10 +8,12 @@ Forecasts Grand Theft Auto VI's launch-day Twitch viewers for hours 2–24 (UTC)
 each past big launch in the case gives a release-day curve `log(hour h / hour 1)`; hour h's five quantiles are the
 weighted empirical quantiles of those curves, scaled by this case's hour-1 count. GTA VI unlocks at midnight local
 time (New Zealand 11:00 UTC Nov 18 through US Eastern 05:00 UTC Nov 19), so launches that unlocked the same way get 6x
-weight; early-access and weak analogs are down-weighted. Python stdlib only, deterministic, well under a second.
+weight; early-access and weak analogs are down-weighted. Each hour's curve is also regressed (slope halved) on the
+launch's momentum, log(hour 1 / the hour six hours earlier), and the quantiles are taken from the residuals around that
+fit. Python stdlib only, deterministic, well under a second.
 
-Leave-one-out over 37 past launches: pinball loss 0.731 vs the house baseline's 0.930; on the 12 midnight-local
-launches 0.327 (`python3 check.py input/p00.in`).
+Leave-one-out over 37 past launches: pinball loss 0.726 vs the house baseline's 0.930; on the 12 midnight-local
+launches 0.307 (`python3 check.py input/p00.in`).
 
 ## Run it
 
