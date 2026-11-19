@@ -27,8 +27,8 @@ def ts(s):
 def weight(c):
     u = (str(c.get("unlock") or "") + " " + str(c.get("source") or "")).lower()
     w = 1.0
-    if "midnight local" in u:
-        w *= 1.5
+    if "midnight local" in u:  # GTA VI unlocks at midnight local (NZ 11:00Z .. US Eastern 05:00Z)
+        w *= 6.0  # LOO on midnight-local launches: x1.5 0.374, x6 0.327, only-these 0.324
     if "early access" in u or "early-access" in u:
         w *= 0.5
     if "tier: weak" in u or "f2p" in u:
